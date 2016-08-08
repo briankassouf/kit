@@ -6,10 +6,8 @@ import (
 	"strings"
 	"time"
 
-	jujuratelimit "github.com/juju/ratelimit"
-	stdopentracing "github.com/opentracing/opentracing-go"
-	"github.com/sony/gobreaker"
-
+	stdjwt "github.com/dgrijalva/jwt-go"
+	"github.com/go-kit/kit/auth/jwt"
 	"github.com/go-kit/kit/circuitbreaker"
 	"github.com/go-kit/kit/endpoint"
 	"github.com/go-kit/kit/examples/addsvc"
@@ -17,6 +15,9 @@ import (
 	"github.com/go-kit/kit/ratelimit"
 	"github.com/go-kit/kit/tracing/opentracing"
 	httptransport "github.com/go-kit/kit/transport/http"
+	jujuratelimit "github.com/juju/ratelimit"
+	stdopentracing "github.com/opentracing/opentracing-go"
+	"github.com/sony/gobreaker"
 )
 
 // New returns an AddService backed by an HTTP server living at the remote
@@ -37,6 +38,7 @@ func New(instance string, tracer stdopentracing.Tracer, logger log.Logger) (adds
 	// that's done, although they could easily be combined into a single breaker
 	// for the entire remote instance, too.
 
+	jwtSigner := jwt.NewSigner("SampleSigningKey", stdjwt.SigningMethodHS256, stdjwt.MapClaims{})
 	limiter := ratelimit.NewTokenBucketLimiter(jujuratelimit.NewBucketWithRate(100, 100))
 
 	var sumEndpoint endpoint.Endpoint
@@ -46,7 +48,7 @@ func New(instance string, tracer stdopentracing.Tracer, logger log.Logger) (adds
 			copyURL(u, "/sum"),
 			addsvc.EncodeHTTPGenericRequest,
 			addsvc.DecodeHTTPSumResponse,
-			httptransport.ClientBefore(opentracing.FromHTTPRequest(tracer, "Sum", logger)),
+			httptransport.ClientBefore(opentracing.FromHTTPRequest(tracer, "Sum", logger), jwt.FromHTTPContext()),
 		).Endpoint()
 		sumEndpoint = opentracing.TraceClient(tracer, "Sum")(sumEndpoint)
 		sumEndpoint = limiter(sumEndpoint)
@@ -54,6 +56,7 @@ func New(instance string, tracer stdopentracing.Tracer, logger log.Logger) (adds
 			Name:    "Sum",
 			Timeout: 30 * time.Second,
 		}))(sumEndpoint)
+		sumEndpoint = jwtSigner(sumEndpoint)
 	}
 
 	var concatEndpoint endpoint.Endpoint

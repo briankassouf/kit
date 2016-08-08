@@ -9,6 +9,8 @@ import (
 	"github.com/sony/gobreaker"
 	"google.golang.org/grpc"
 
+	stdjwt "github.com/dgrijalva/jwt-go"
+	"github.com/go-kit/kit/auth/jwt"
 	"github.com/go-kit/kit/circuitbreaker"
 	"github.com/go-kit/kit/endpoint"
 	"github.com/go-kit/kit/examples/addsvc"
@@ -28,6 +30,8 @@ func New(conn *grpc.ClientConn, tracer stdopentracing.Tracer, logger log.Logger)
 	// that's done, although they could easily be combined into a single breaker
 	// for the entire remote instance, too.
 
+	// Signing Key should be kept secret
+	jwtSigner := jwt.NewSigner("SampleSigningKey", stdjwt.SigningMethodHS256, stdjwt.MapClaims{})
 	limiter := ratelimit.NewTokenBucketLimiter(jujuratelimit.NewBucketWithRate(100, 100))
 
 	var sumEndpoint endpoint.Endpoint
@@ -39,7 +43,7 @@ func New(conn *grpc.ClientConn, tracer stdopentracing.Tracer, logger log.Logger)
 			addsvc.EncodeGRPCSumRequest,
 			addsvc.DecodeGRPCSumResponse,
 			pb.SumReply{},
-			grpctransport.ClientBefore(opentracing.FromGRPCRequest(tracer, "Sum", logger)),
+			grpctransport.ClientBefore(opentracing.FromGRPCRequest(tracer, "Sum", logger), jwt.FromGRPCContext()),
 		).Endpoint()
 		sumEndpoint = opentracing.TraceClient(tracer, "Sum")(sumEndpoint)
 		sumEndpoint = limiter(sumEndpoint)
@@ -47,6 +51,7 @@ func New(conn *grpc.ClientConn, tracer stdopentracing.Tracer, logger log.Logger)
 			Name:    "Sum",
 			Timeout: 30 * time.Second,
 		}))(sumEndpoint)
+		sumEndpoint = jwtSigner(sumEndpoint)
 	}
 
 	var concatEndpoint endpoint.Endpoint

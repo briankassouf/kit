@@ -13,6 +13,7 @@ import (
 	stdopentracing "github.com/opentracing/opentracing-go"
 	"golang.org/x/net/context"
 
+	"github.com/go-kit/kit/auth/jwt"
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/tracing/opentracing"
 	httptransport "github.com/go-kit/kit/transport/http"
@@ -31,7 +32,7 @@ func MakeHTTPHandler(ctx context.Context, endpoints Endpoints, tracer stdopentra
 		endpoints.SumEndpoint,
 		DecodeHTTPSumRequest,
 		EncodeHTTPGenericResponse,
-		append(options, httptransport.ServerBefore(opentracing.FromHTTPRequest(tracer, "Sum", logger)))...,
+		append(options, httptransport.ServerBefore(opentracing.FromHTTPRequest(tracer, "Sum", logger), jwt.ToHTTPContext()))...,
 	))
 	m.Handle("/concat", httptransport.NewServer(
 		ctx,

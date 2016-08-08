@@ -7,6 +7,7 @@ import (
 	stdopentracing "github.com/opentracing/opentracing-go"
 	"golang.org/x/net/context"
 
+	"github.com/go-kit/kit/auth/jwt"
 	"github.com/go-kit/kit/examples/addsvc/pb"
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/tracing/opentracing"
@@ -24,7 +25,7 @@ func MakeGRPCServer(ctx context.Context, endpoints Endpoints, tracer stdopentrac
 			endpoints.SumEndpoint,
 			DecodeGRPCSumRequest,
 			EncodeGRPCSumResponse,
-			append(options, grpctransport.ServerBefore(opentracing.FromGRPCRequest(tracer, "Sum", logger)))...,
+			append(options, grpctransport.ServerBefore(opentracing.FromGRPCRequest(tracer, "Sum", logger), jwt.ToGRPCContext()))...,
 		),
 		concat: grpctransport.NewServer(
 			ctx,

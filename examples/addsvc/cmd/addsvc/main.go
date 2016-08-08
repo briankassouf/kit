@@ -13,15 +13,16 @@ import (
 	"time"
 
 	"github.com/apache/thrift/lib/go/thrift"
+	stdjwt "github.com/dgrijalva/jwt-go"
 	lightstep "github.com/lightstep/lightstep-tracer-go"
 	stdopentracing "github.com/opentracing/opentracing-go"
 	zipkin "github.com/openzipkin/zipkin-go-opentracing"
 	stdprometheus "github.com/prometheus/client_golang/prometheus"
-	appdashot "github.com/sourcegraph/appdash/opentracing"
+	//appdashot "github.com/sourcegraph/appdash/opentracing"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
-	"sourcegraph.com/sourcegraph/appdash"
 
+	"github.com/go-kit/kit/auth/jwt"
 	"github.com/go-kit/kit/endpoint"
 	"github.com/go-kit/kit/examples/addsvc"
 	"github.com/go-kit/kit/examples/addsvc/pb"
@@ -42,8 +43,8 @@ func main() {
 		thriftBufferSize = flag.Int("thrift.buffer.size", 0, "0 for unbuffered")
 		thriftFramed     = flag.Bool("thrift.framed", false, "true to enable framing")
 		zipkinAddr       = flag.String("zipkin.addr", "", "Enable Zipkin tracing via a Kafka server host:port")
-		appdashAddr      = flag.String("appdash.addr", "", "Enable Appdash tracing via an Appdash server host:port")
-		lightstepToken   = flag.String("lightstep.token", "", "Enable LightStep tracing via a LightStep access token")
+		//appdashAddr      = flag.String("appdash.addr", "", "Enable Appdash tracing via an Appdash server host:port")
+		lightstepToken = flag.String("lightstep.token", "", "Enable LightStep tracing via a LightStep access token")
 	)
 	flag.Parse()
 
@@ -103,10 +104,10 @@ func main() {
 				logger.Log("err", err)
 				os.Exit(1)
 			}
-		} else if *appdashAddr != "" {
+			/*} else if *appdashAddr != "" {
 			logger := log.NewContext(logger).With("tracer", "Appdash")
 			logger.Log("addr", *appdashAddr)
-			tracer = appdashot.NewTracer(appdash.NewRemoteCollector(*appdashAddr))
+			tracer = appdashot.NewTracer(appdash.NewRemoteCollector(*appdashAddr))*/
 		} else if *lightstepToken != "" {
 			logger := log.NewContext(logger).With("tracer", "LightStep")
 			logger.Log() // probably don't want to print out the token :)
@@ -134,11 +135,13 @@ func main() {
 	{
 		sumDuration := duration.With(metrics.Field{Key: "method", Value: "Sum"})
 		sumLogger := log.NewContext(logger).With("method", "Sum")
+		auth := jwt.NewParser(func(token *stdjwt.Token) (interface{}, error) { return []byte("SampleSigningKey"), nil }, stdjwt.SigningMethodHS256)
 
 		sumEndpoint = addsvc.MakeSumEndpoint(service)
 		sumEndpoint = opentracing.TraceServer(tracer, "Sum")(sumEndpoint)
 		sumEndpoint = addsvc.EndpointInstrumentingMiddleware(sumDuration)(sumEndpoint)
 		sumEndpoint = addsvc.EndpointLoggingMiddleware(sumLogger)(sumEndpoint)
+		sumEndpoint = auth(sumEndpoint)
 	}
 	var concatEndpoint endpoint.Endpoint
 	{
