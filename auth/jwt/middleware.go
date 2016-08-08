@@ -1,4 +1,4 @@
-package auth
+package jwt
 
 import (
 	"errors"
@@ -11,12 +11,18 @@ import (
 
 	jwt "github.com/dgrijalva/jwt-go"
 	"github.com/go-kit/kit/endpoint"
-	"github.com/go-kit/kit/transport/grpc"
+)
+
+const (
+	// JWTContextKey holds the key used to store a JWT Token in the context
+	JWTTokenContextKey = "JWTToken"
+	// JWTContextKey holds the key used to store a JWT in the context
+	JWTClaimsContextKey = "JWTClaims"
 )
 
 // Create a new JWT token generating middleware, specifying signing method and the claims
 // you would like it to contain. Particulary useful for clients.
-func NewJWTSigner(key string, method jwt.SigningMethod, claims jwt.Claims) endpoint.Middleware {
+func NewSigner(key string, method jwt.SigningMethod, claims jwt.Claims) endpoint.Middleware {
 	return func(next endpoint.Endpoint) endpoint.Endpoint {
 		return func(ctx context.Context, request interface{}) (response interface{}, err error) {
 			token := jwt.NewWithClaims(method, claims)
@@ -26,7 +32,7 @@ func NewJWTSigner(key string, method jwt.SigningMethod, claims jwt.Claims) endpo
 			if err != nil {
 				return nil, err
 			}
-			md := metadata.Pairs("jwtToken", tokenString)
+			md := metadata.MD{JWTTokenContextKey: []string{tokenString}}
 			ctx = metadata.NewContext(ctx, md)
 
 			return next(ctx, request)
@@ -37,11 +43,11 @@ func NewJWTSigner(key string, method jwt.SigningMethod, claims jwt.Claims) endpo
 // Create a new JWT token parsing middleware, specifying a jwt.Keyfunc interface and the
 // signing method. Adds the resulting claims to endpoint context or returns error on invalid
 // token. Particualry useful for servers.
-func NewJWTParser(keyFunc jwt.Keyfunc, method jwt.SigningMethod) endpoint.Middleware {
+func NewParser(keyFunc jwt.Keyfunc, method jwt.SigningMethod) endpoint.Middleware {
 	return func(next endpoint.Endpoint) endpoint.Endpoint {
 		return func(ctx context.Context, request interface{}) (response interface{}, err error) {
 			// tokenString is stored in the context from the transport handlers
-			tokenString, ok := ctx.Value("jwtToken").(string)
+			tokenString, ok := ctx.Value(JWTTokenContextKey).(string)
 			if !ok {
 				return nil, errors.New("Token up for parsing was not passed through the context")
 			}
@@ -66,37 +72,10 @@ func NewJWTParser(keyFunc jwt.Keyfunc, method jwt.SigningMethod) endpoint.Middle
 			}
 
 			if claims, ok := token.Claims.(jwt.MapClaims); ok {
-				ctx = context.WithValue(ctx, "jwtClaims", claims)
+				ctx = context.WithValue(ctx, JWTClaimsContextKey, claims)
 			}
 
 			return next(ctx, request)
 		}
-	}
-}
-
-func NewGRPCServerRequestFunc() grpc.RequestFunc {
-	return func(ctx context.Context, md *metadata.MD) context.Context {
-		token, ok := (*md)["jwttoken"]
-		if ok {
-			ctx = context.WithValue(ctx, "jwtToken", token[0])
-		}
-
-		return ctx
-	}
-}
-
-func NewGRPCClientRequestFunc() grpc.RequestFunc {
-	return func(ctx context.Context, md *metadata.MD) context.Context {
-		md1, ok := metadata.FromContext(ctx)
-		if !ok {
-			return ctx
-		}
-
-		token, ok := md1["jwttoken"]
-		if ok {
-			(*md)["jwttoken"] = token
-		}
-
-		return ctx
 	}
 }
